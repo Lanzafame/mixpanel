@@ -5,12 +5,12 @@ package mixpanel
 import (
 	"crypto/md5"
 	"encoding/hex"
+	"io/ioutil"
+	"log"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
-
-	"utils"
 )
 
 const (
@@ -31,7 +31,7 @@ type Request struct {
 	Parameters map[string]string
 	Expire     string
 	Signature  string
-	Config     Config
+	Config
 }
 
 // Config ...
@@ -40,25 +40,12 @@ type Config struct {
 	APISecret string
 }
 
-// ConfigureAuth ...
-func (req *Request) ConfigureAuth(key string, secret string) {
-	conf := Config{
-		APIKey:    utils.FileContents(key),
-		APISecret: utils.FileContents(secret),
+// ConfigureAuth takes a path for the mixpanel key and the secret key.
+func (req *Request) ConfigureAuth(keypath string, secretpath string) {
+	req.Config = Config{
+		APIKey:    FileContents(keypath),
+		APISecret: FileContents(secretpath),
 	}
-	req.Config = conf
-	// conf.APIKey := utils.FileContents(key)
-	// conf.APISecret := utils.FileContents(secret)
-}
-
-// APIKey ...
-func (req *Request) APIKey() string {
-	return req.Config.APIKey
-}
-
-// APISecret ...
-func (req *Request) APISecret() string {
-	return req.Config.APISecret
 }
 
 // NewRequest ...
@@ -72,7 +59,7 @@ func NewRequest() *Request {
 func (req *Request) GenerateSignature() {
 	var hash []string
 	param := make(map[string]string)
-	param["api_key"] = req.APIKey()
+	param["api_key"] = req.APIKey
 	param["format"] = Format
 	param["expire"] = req.Expire
 
@@ -94,10 +81,10 @@ func (req *Request) GenerateSignature() {
 	}
 
 	// Append api_secret and hash
-	hash = append(hash, req.APISecret())
+	hash = append(hash, req.APISecret)
 	joinedhash := strings.Join(hash, "")
 
-	req.Signature = GetMD5Hash(joinedhash)
+	req.Signature = MD5Hash(joinedhash)
 }
 
 // CompileURL ...
@@ -124,7 +111,7 @@ func (req *Request) CompileURL(rawflag bool) string {
 		params = append(params, kv)
 	}
 
-	apikey := joinKeyValue("api_key", req.APIKey())
+	apikey := joinKeyValue("api_key", req.APIKey)
 	expire := joinKeyValue("expire", req.Expire)
 	format := joinKeyValue("format", Format)
 	sig := joinKeyValue("sig", req.Signature)
@@ -143,13 +130,13 @@ func joinKeyValue(key string, value string) string {
 	return kv
 }
 
-// CalculateExpiry exp is in seconds
+// CalculateExpiry expire is in seconds
 func (req *Request) CalculateExpiry(expire int) string {
 	return strconv.FormatInt(time.Now().Add(time.Duration(expire)*time.Second).UTC().Unix(), 10)
 }
 
-// GetMD5Hash ...
-func GetMD5Hash(text string) string {
+// MD5Hash returns a md5 hash of text.
+func MD5Hash(text string) string {
 	hasher := md5.New()
 	hasher.Write([]byte(text))
 	return hex.EncodeToString(hasher.Sum(nil))
@@ -159,7 +146,7 @@ func GetMD5Hash(text string) string {
 // REQUESTS //
 //////////////
 
-// CreateRequest ...
+// CreateRequest is the base request function that is wrapped to make more convenient request functions.
 func (req *Request) CreateRequest(raw bool, endpoint string, method string, expire int, params map[string]string) string {
 	NewRequest()
 	req.Endpoint = endpoint
@@ -193,4 +180,17 @@ func (req *Request) GetEventsNames(params map[string]string) string {
 // parameters are `event`, `where`, and `bucket`.
 func (req *Request) GetRawData(params map[string]string) string {
 	return req.CreateRequest(true, "export", "", 600, params)
+}
+
+////////////
+//  Utils //
+////////////
+
+// FileContents reads out the contents of a file.
+func FileContents(filename string) string {
+	slurp, err := ioutil.ReadFile(filename)
+	if err != nil {
+		log.Fatalf("Error reading %q: %v", filename, err)
+	}
+	return strings.TrimSpace(string(slurp))
 }
